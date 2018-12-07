@@ -1,70 +1,111 @@
 function toDot(path) {
-  return path.replace(/^\//, '').replace(/\//g, '.').replace(/~1/g, '/').replace(/~0/g, '~');
+  return path
+    .replace(/^\//, '')
+    .replace(/\//g, '.')
+    .replace(/~1/g, '/')
+    .replace(/~0/g, '~');
 }
 
-module.exports = function(patches){
-  var update = {};
-  patches.map(function(p){
-    switch(p.op) {
-    case 'add':
-      var path = toDot(p.path),
-        parts = path.split('.');
+function extract(path) {
+  const dotPath = toDot(path);
+  const components = dotPath.split('.');
+  const last = components.pop();
+  return {
+    dotPath,
+    location: components.join('.'),
+    index: last === '-' ? '-' : parseInt(last, 10),
+  };
+}
 
-      var positionPart = parts.length > 1 && parts[parts.length - 1];
-      var addToEnd = positionPart === '-';
-      var key = parts.slice(0, -1).join('.');
-      var $position = positionPart && parseInt(positionPart, 10) || null;
-
-      update.$push = update.$push || {};
-
-      if ($position !== null) {
-        if (update.$push[key] === undefined) {
-          update.$push[key] = {
-            $each: [p.value],
-            $position: $position
-          };
-        } else {
-          if (update.$push[key] === null || update.$push[key].$position === undefined) {
-            throw new Error("Unsupported Operation! can't use add op with mixed positions");
-          }
-          var posDiff = $position - update.$push[key].$position;
-          if (posDiff > update.$push[key].$each.length) {
-            throw new Error("Unsupported Operation! can use add op only with contiguous positions");
-          }
-          update.$push[key].$each.splice(posDiff, 0, p.value);
-          update.$push[key].$position = Math.min($position, update.$push[key].$position);
-        }
-      } else if(addToEnd) {
-        if (update.$push[key] === undefined) {
-          update.$push[key] = p.value;
-        } else {
-          if (update.$push[key] === null || update.$push[key].$each === undefined) {
-            update.$push[key] = {
-              $each: [update.$push[key]]
-            };
-          }
-          if (update.$push[key].$position !== undefined) {
-            throw new Error("Unsupported Operation! can't use add op with mixed positions");
-          }
-          update.$push[key].$each.push(p.value);
-        }
-      } else {
-        throw new Error("Unsupported Operation! can't use add op without position");
+function toMongoUpdate(patches) {
+  return patches.reduce((update, patch) => {
+    const { op, path, value } = patch;
+    if (op === 'add') {
+      const { dotPath, location, index } = extract(path);
+      if (Number.isNaN(index)) {
+        const $set = update.$set || {};
+        $set[dotPath] = value;
+        return {
+          ...update,
+          $set,
+        };
       }
-      break;
-    case 'remove':
-      update.$unset = update.$unset || {};
-      update.$unset[toDot(p.path)] = 1;
-      break;
-    case 'replace':
-      update.$set = update.$set || {};
-      update.$set[toDot(p.path)] = p.value;
-      break;
-    case 'test':
-      break;
-    default:
-      throw new Error('Unsupported Operation! op = ' + p.op);
+      const $push = update.$push || {};
+      if (!$push[location]) {
+        $push[location] = {
+          $each: [value],
+        };
+        if (index !== '-') {
+          $push[location].$position = index;
+        }
+        return {
+          ...update,
+          $push,
+        };
+      }
+      // TODO: supports positive/negative/contiguous posotions
+      // if (index === '-' && !('$position' in $push[location])) {
+      //   $push[location].$each.push(value);
+      //   return {
+      //     ...update,
+      //     $push,
+      //   };
+      // }
+      // if (index !== '-' && '$position' in $push[location]) {
+      //   const posDiff =
+      //     index > $push[location].$position
+      //       ? index - $push[location].$position
+      //       : $push[location].$position - index;
+      //   if (posDiff > $push[location].$each.length) {
+      //     throw new Error('Unsupported Operation! Can only use add op with contiguous positions');
+      //   }
+      //   $push[location].$each.splice(posDiff, 0, value);
+      //   $push[location].$position = Math.min(index, $push[location].$position);
+      //   return {
+      //     ...update,
+      //     $push,
+      //   };
+      // }
+      throw new Error("Unsupported Operation! Can't use add op with mixed positions");
     }
-  });
-  return update;
-};
+    if (op === 'remove') {
+      const { dotPath, location, index } = extract(path);
+      if (index === '-' || index === 0) {
+        const $pop = update.$pop || {};
+        $pop[location] = index === '-' ? 1 : -1;
+        return {
+          ...update,
+          $pop,
+        };
+      }
+      if (Number.isNaN(index)) {
+        const $unset = update.$unset || {};
+        $unset[dotPath] = 1;
+        return {
+          ...update,
+          $unset,
+        };
+      }
+      const $set = update.$set || {};
+      $set[dotPath] = null;
+      const $pull = update.$pull || {};
+      $pull[location] = null;
+      return {
+        ...update,
+        $set,
+        $pull,
+      };
+    }
+    if (op === 'replace') {
+      const $set = update.$set || {};
+      $set[toDot(path)] = value;
+      return {
+        ...update,
+        $set,
+      };
+    }
+    throw new Error(`Unsupported Operation! op = ${op}`);
+  }, {});
+}
+
+module.exports = toMongoUpdate;
