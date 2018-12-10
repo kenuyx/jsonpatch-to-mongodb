@@ -14,13 +14,15 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $push: {
-        name: {
-          $each: ['dave'],
+    const expected = [
+      {
+        $push: {
+          name: {
+            $each: ['dave'],
+          },
         },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -34,11 +36,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $set: {
-        'foo/bar~': 'dave',
+    const expected = [
+      {
+        $set: {
+          'foo/bar~': 'dave',
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -52,14 +56,16 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $push: {
-        name: {
-          $each: ['dave'],
-          $position: 1,
+    const expected = [
+      {
+        $push: {
+          name: {
+            $each: ['dave'],
+            $position: 1,
+          },
         },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -73,11 +79,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $set: {
-        name: 'dave',
+    const expected = [
+      {
+        $set: {
+          name: 'dave',
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -101,14 +109,16 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $push: {
-        name: {
-          $each: ['dave', 'john', 'bob'],
-          $position: 1,
+    const expected = [
+      {
+        $push: {
+          name: {
+            $each: ['dave', 'john', 'bob'],
+            $position: 1,
+          },
         },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -132,11 +142,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $push: {
-        name: { $each: ['john', 'bob', 'dave'], $position: 1 },
+    const expected = [
+      {
+        $push: {
+          name: { $each: ['john', 'bob', 'dave'], $position: 1 },
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -160,11 +172,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $push: {
-        name: { $each: ['dave', 'bob', 'john'] },
+    const expected = [
+      {
+        $push: {
+          name: { $each: ['dave', 'bob', 'john'] },
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -188,11 +202,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $push: {
-        name: { $each: [null, 'bob', null] },
+    const expected = [
+      {
+        $push: {
+          name: { $each: [null, 'bob', null] },
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -216,11 +232,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $push: {
-        name: { $each: [null, 'bob', null], $position: 1 },
+    const expected = [
+      {
+        $push: {
+          name: { $each: [null, 'bob', null], $position: 1 },
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -233,11 +251,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $unset: {
-        name: 1,
+    const expected = [
+      {
+        $unset: {
+          name: 1,
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -246,15 +266,17 @@ describe('jsonpatch to mongodb', () => {
     const patches = [
       {
         op: 'remove',
-        path: '/name/-',
+        path: '/name/-1',
       },
     ];
 
-    const expected = {
-      $pop: {
-        name: 1,
+    const expected = [
+      {
+        $pop: {
+          name: 1,
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -267,11 +289,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $pop: {
-        name: -1,
+    const expected = [
+      {
+        $pop: {
+          name: -1,
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
@@ -284,16 +308,44 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $set: {
-        'name.2': null,
+    const expected = [
+      {
+        $set: {
+          'name.2': null,
+        },
       },
-      $pull: {
-        name: null,
+      {
+        $pull: {
+          name: null,
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should work with remove on array 4', () => {
+    const patches = [
+      {
+        op: 'remove',
+        path: '/name/2',
+      },
+    ];
+
+    const expected = [
+      {
+        $set: {
+          'name.2': '__delete__',
+        },
+      },
+      {
+        $pull: {
+          name: '__delete__',
+        },
+      },
+    ];
+
+    assert.deepEqual(toMongodb(patches, '__delete__'), expected);
   });
 
   it('should work with replace', () => {
@@ -305,11 +357,13 @@ describe('jsonpatch to mongodb', () => {
       },
     ];
 
-    const expected = {
-      $set: {
-        name: 'dave',
+    const expected = [
+      {
+        $set: {
+          name: 'dave',
+        },
       },
-    };
+    ];
 
     assert.deepEqual(toMongodb(patches), expected);
   });
