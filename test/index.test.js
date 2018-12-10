@@ -16,7 +16,9 @@ describe('jsonpatch to mongodb', () => {
 
     const expected = {
       $push: {
-        name: 'dave',
+        name: {
+          $each: ['dave'],
+        },
       },
     };
 
@@ -62,7 +64,25 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple set', () => {
+  it('should work as replace on add without position', () => {
+    const patches = [
+      {
+        op: 'add',
+        path: '/name',
+        value: 'dave',
+      },
+    ];
+
+    const expected = {
+      $set: {
+        name: 'dave',
+      },
+    };
+
+    assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should work with multiple adds 1', () => {
     const patches = [
       {
         op: 'add',
@@ -93,7 +113,7 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds in reverse position', () => {
+  it('should work with multiple adds 2', () => {
     const patches = [
       {
         op: 'add',
@@ -121,7 +141,7 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds', () => {
+  it('should work with multiple adds 3', () => {
     const patches = [
       {
         op: 'add',
@@ -210,13 +230,66 @@ describe('jsonpatch to mongodb', () => {
       {
         op: 'remove',
         path: '/name',
-        value: 'dave',
       },
     ];
 
     const expected = {
       $unset: {
         name: 1,
+      },
+    };
+
+    assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should work with remove on array 1', () => {
+    const patches = [
+      {
+        op: 'remove',
+        path: '/name/-',
+      },
+    ];
+
+    const expected = {
+      $pop: {
+        name: 1,
+      },
+    };
+
+    assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should work with remove on array 2', () => {
+    const patches = [
+      {
+        op: 'remove',
+        path: '/name/0',
+      },
+    ];
+
+    const expected = {
+      $pop: {
+        name: -1,
+      },
+    };
+
+    assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should work with remove on array 3', () => {
+    const patches = [
+      {
+        op: 'remove',
+        path: '/name/2',
+      },
+    ];
+
+    const expected = {
+      $set: {
+        'name.2': null,
+      },
+      $pull: {
+        name: null,
       },
     };
 
@@ -241,20 +314,6 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with test', () => {
-    const patches = [
-      {
-        op: 'test',
-        path: '/name',
-        value: 'dave',
-      },
-    ];
-
-    const expected = {};
-
-    assert.deepEqual(toMongodb(patches), expected);
-  });
-
   it('blow up on adds with non contiguous positions', () => {
     const patches = [
       {
@@ -273,10 +332,10 @@ describe('jsonpatch to mongodb', () => {
       .expect(() => {
         toMongodb(patches);
       })
-      .to.throw('Unsupported Operation! can use add op only with contiguous positions');
+      .to.throw('Unsupported Operation! Can use add op only with contiguous positions.');
   });
 
-  it('blow up on adds with mixed position 1', () => {
+  it('blow up on adds with mixed directions 1', () => {
     const patches = [
       {
         op: 'add',
@@ -294,10 +353,10 @@ describe('jsonpatch to mongodb', () => {
       .expect(() => {
         toMongodb(patches);
       })
-      .to.throw("Unsupported Operation! can't use add op with mixed positions");
+      .to.throw('Unsupported Operation! Can only use add op starting from the same direction.');
   });
 
-  it('blow up on adds with mixed position 2', () => {
+  it('blow up on adds with mixed directions 2', () => {
     const patches = [
       {
         op: 'add',
@@ -315,23 +374,7 @@ describe('jsonpatch to mongodb', () => {
       .expect(() => {
         toMongodb(patches);
       })
-      .to.throw("Unsupported Operation! can't use add op with mixed positions");
-  });
-
-  it('should blow up on add without position', () => {
-    const patches = [
-      {
-        op: 'add',
-        path: '/name',
-        value: 'dave',
-      },
-    ];
-
-    chai
-      .expect(() => {
-        toMongodb(patches);
-      })
-      .to.throw("Unsupported Operation! can't use add op without position");
+      .to.throw('Unsupported Operation! Can only use add op starting from the same direction.');
   });
 
   it('should blow up on move', () => {
@@ -364,5 +407,21 @@ describe('jsonpatch to mongodb', () => {
         toMongodb(patches);
       })
       .to.throw('Unsupported Operation! op = copy');
+  });
+
+  it('should blow up on test', () => {
+    const patches = [
+      {
+        op: 'test',
+        path: '/name',
+        value: 'dave',
+      },
+    ];
+
+    chai
+      .expect(() => {
+        toMongodb(patches);
+      })
+      .to.throw('Unsupported Operation! op = test');
   });
 });

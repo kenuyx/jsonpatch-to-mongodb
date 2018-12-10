@@ -38,35 +38,29 @@ function toMongoUpdate(patches) {
         if (index !== '-') {
           $push[location].$position = index;
         }
-        return {
-          ...update,
-          $push,
-        };
+      } else {
+        const backward = !('$position' in $push[location]) || $push[location].$position < 0;
+        if ((!backward && (index === '-' || index < 0)) || (backward && index >= 0)) {
+          throw new Error(
+            'Unsupported Operation! Can only use add op starting from the same direction.'
+          );
+        }
+        const $position = !('$position' in $push[location])
+          ? 0
+          : Math.abs($push[location].$position);
+        const absIndex = index === '-' ? 0 : Math.abs(index);
+        const start = absIndex - $position;
+        if (start < 0 || start > $push[location].$each.length) {
+          throw new Error('Unsupported Operation! Can use add op only with contiguous positions.');
+        }
+        const $each = backward ? $push[location].$each.reverse() : $push[location].$each;
+        $each.splice(start, 0, value);
+        $push[location].$each = backward ? $each.reverse() : $each;
       }
-      // TODO: supports positive/negative/contiguous posotions
-      // if (index === '-' && !('$position' in $push[location])) {
-      //   $push[location].$each.push(value);
-      //   return {
-      //     ...update,
-      //     $push,
-      //   };
-      // }
-      // if (index !== '-' && '$position' in $push[location]) {
-      //   const posDiff =
-      //     index > $push[location].$position
-      //       ? index - $push[location].$position
-      //       : $push[location].$position - index;
-      //   if (posDiff > $push[location].$each.length) {
-      //     throw new Error('Unsupported Operation! Can only use add op with contiguous positions');
-      //   }
-      //   $push[location].$each.splice(posDiff, 0, value);
-      //   $push[location].$position = Math.min(index, $push[location].$position);
-      //   return {
-      //     ...update,
-      //     $push,
-      //   };
-      // }
-      throw new Error("Unsupported Operation! Can't use add op with mixed positions");
+      return {
+        ...update,
+        $push,
+      };
     }
     if (op === 'remove') {
       const { dotPath, location, index } = extract(path);
