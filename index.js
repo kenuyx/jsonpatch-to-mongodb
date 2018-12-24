@@ -17,10 +17,10 @@ function extract(path) {
   };
 }
 
-function toMongoUpdate(patches, delMark) {
+function toMongoUpdate(patches) {
   return patches.reduce(
     (updates, patch) => {
-      const { op, path, value } = patch;
+      const { op, path, value, from } = patch;
       if (op === 'add') {
         const [update, ...rest] = updates;
         const { dotPath, location, index } = extract(path);
@@ -98,10 +98,10 @@ function toMongoUpdate(patches, delMark) {
           ];
         }
         const $set = update.$set || {};
-        $set[dotPath] = delMark || null;
+        $set[dotPath] = null;
         const last = rest.length > 0 ? rest[0] : {};
         const $pull = last.$pull || {};
-        $pull[location] = delMark || null;
+        $pull[location] = null;
         last.$pull = $pull;
         return [
           {
@@ -114,12 +114,56 @@ function toMongoUpdate(patches, delMark) {
       }
       if (op === 'replace') {
         const [update, ...rest] = updates;
+        if (typeof value === 'string') {
+          if (value.startsWith('+') || value.startsWith('-')) {
+            const $inc = update.$inc || {};
+            const step = parseFloat(value);
+            if (Number.isNaN(step)) {
+              throw new Error('Unsupported Operation! Can only increments with number.');
+            }
+            $inc[toDot(path)] = step;
+            return [
+              {
+                ...update,
+                $inc,
+              },
+              ...rest,
+            ];
+          }
+          if (value.startsWith('×')) {
+            const $mul = update.$mul || {};
+            const step = parseFloat(value.slice(1));
+            if (Number.isNaN(step)) {
+              throw new Error('Unsupported Operation! Can only multiplies with number.');
+            }
+            $mul[toDot(path)] = step;
+            return [
+              {
+                ...update,
+                $mul,
+              },
+              ...rest,
+            ];
+          }
+        }
         const $set = update.$set || {};
         $set[toDot(path)] = value;
         return [
           {
             ...update,
             $set,
+          },
+          ...rest,
+        ];
+      }
+      if (op === 'move') {
+        const [update, ...rest] = updates;
+        const $rename = update.$rename || {};
+        $rename[toDot(from)] = toDot(path);
+        return [
+          {
+            ...update,
+            $rename,
           },
           ...rest,
         ];
