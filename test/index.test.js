@@ -335,17 +335,17 @@ describe('jsonpatch to mongodb', () => {
     const expected = [
       {
         $set: {
-          'name.2': '__delete__',
+          'name.2': null,
         },
       },
       {
         $pull: {
-          name: '__delete__',
+          name: null,
         },
       },
     ];
 
-    assert.deepEqual(toMongodb(patches, '__delete__'), expected);
+    assert.deepEqual(toMongodb(patches), expected);
   });
 
   it('should work with replace', () => {

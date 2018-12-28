@@ -6,8 +6,7 @@ function toDot(path) {
     .replace(/~0/g, '~');
 }
 
-function extract(path) {
-  const dotPath = toDot(path);
+function extract(dotPath) {
   const components = dotPath.split('.');
   const last = components.pop();
   return {
@@ -21,9 +20,10 @@ function toMongoUpdate(patches) {
   return patches.reduce(
     (updates, patch) => {
       const { op, path, value, from } = patch;
+      const dotPath = toDot(path);
       if (op === 'add') {
         const [update, ...rest] = updates;
-        const { dotPath, location, index } = extract(path);
+        const { location, index } = extract(dotPath);
         if (Number.isNaN(index)) {
           const $set = update.$set || {};
           $set[dotPath] = value;
@@ -74,7 +74,7 @@ function toMongoUpdate(patches) {
       }
       if (op === 'remove') {
         const [update, ...rest] = updates;
-        const { dotPath, location, index } = extract(path);
+        const { location, index } = extract(dotPath);
         if (index === -1 || index === 0) {
           const $pop = update.$pop || {};
           $pop[location] = index === -1 ? 1 : -1;
@@ -121,7 +121,7 @@ function toMongoUpdate(patches) {
             if (Number.isNaN(step)) {
               throw new Error('Unsupported Operation! Can only increments with number.');
             }
-            $inc[toDot(path)] = step;
+            $inc[dotPath] = step;
             return [
               {
                 ...update,
@@ -136,7 +136,7 @@ function toMongoUpdate(patches) {
             if (Number.isNaN(step)) {
               throw new Error('Unsupported Operation! Can only multiplies with number.');
             }
-            $mul[toDot(path)] = step;
+            $mul[dotPath] = step;
             return [
               {
                 ...update,
@@ -147,7 +147,7 @@ function toMongoUpdate(patches) {
           }
         }
         const $set = update.$set || {};
-        $set[toDot(path)] = value;
+        $set[dotPath] = value;
         return [
           {
             ...update,
@@ -159,7 +159,7 @@ function toMongoUpdate(patches) {
       if (op === 'move') {
         const [update, ...rest] = updates;
         const $rename = update.$rename || {};
-        $rename[toDot(from)] = toDot(path);
+        $rename[toDot(from)] = dotPath;
         return [
           {
             ...update,
