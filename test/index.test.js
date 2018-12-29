@@ -5,131 +5,62 @@ const chai = require('chai');
 const toMongodb = require('../');
 
 describe('jsonpatch to mongodb', () => {
-  it('should work with single add', () => {
-    const patches = [
-      {
-        op: 'add',
-        path: '/name/-',
-        value: 'dave',
-      },
-    ];
-
-    const expected = [
-      {
-        $push: {
-          name: {
-            $each: ['dave'],
-          },
-        },
-      },
-    ];
-
+  it('should return unescaped path when path contains escaped characters', () => {
+    const patches = [{ op: 'replace', path: '/foo~1bar~0', value: 'dave' }];
+    const expected = [{ $set: { 'foo/bar~': 'dave' } }];
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with escaped characters', () => {
-    const patches = [
-      {
-        op: 'replace',
-        path: '/foo~1bar~0',
-        value: 'dave',
-      },
-    ];
-
-    const expected = [
-      {
-        $set: {
-          'foo/bar~': 'dave',
-        },
-      },
-    ];
-
+  it('should return `$set` when path in op `add` does not end with `-` or integer', () => {
+    const patches = [{ op: 'add', path: '/name/first', value: 'dave' }];
+    const expected = [{ $set: { 'name.first': 'dave' } }];
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with array set', () => {
-    const patches = [
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'dave',
-      },
-    ];
-
-    const expected = [
-      {
-        $push: {
-          name: {
-            $each: ['dave'],
-            $position: 1,
-          },
-        },
-      },
-    ];
-
+  it('should return `$push` without `$position` when path in op `add` ends with `-`', () => {
+    const patches = [{ op: 'add', path: '/name/-', value: 'dave' }];
+    const expected = [{ $push: { name: { $each: ['dave'] } } }];
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work as replace on add without position', () => {
-    const patches = [
-      {
-        op: 'add',
-        path: '/name',
-        value: 'dave',
-      },
-    ];
-
-    const expected = [
-      {
-        $set: {
-          name: 'dave',
-        },
-      },
-    ];
-
+  it('should return `$push` with `$position` when path in op `add` ends with integer', () => {
+    const patches = [{ op: 'add', path: '/name/2', value: 'dave' }];
+    const expected = [{ $push: { name: { $each: ['dave'], $position: 2 } } }];
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds 1', () => {
+  it('should return single `$push` without `$position` when `add`s to the end', () => {
     const patches = [
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'dave',
-      },
-      {
-        op: 'add',
-        path: '/name/2',
-        value: 'bob',
-      },
-      {
-        op: 'add',
-        path: '/name/2',
-        value: 'john',
-      },
+      { op: 'add', path: '/name/-', value: 'dave' },
+      { op: 'add', path: '/name/-', value: 'bob' },
+      { op: 'add', path: '/name/-', value: null },
     ];
-
-    const expected = [
-      {
-        $push: {
-          name: {
-            $each: ['dave', 'john', 'bob'],
-            $position: 1,
-          },
-        },
-      },
-    ];
-
+    const expected = [{ $push: { name: { $each: ['dave', 'bob', null] } } }];
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds 2', () => {
+  it('should return single `$push` with ordered `$each` when `add`s in continuous positive positions', () => {
     const patches = [
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'dave',
-      },
+      { op: 'add', path: '/name/1', value: 'dave' },
+      { op: 'add', path: '/name/2', value: 'bob' },
+      { op: 'add', path: '/name/2', value: 'john' },
+    ];
+    const expected = [{ $push: { name: { $each: ['dave', 'john', 'bob'], $position: 1 } } }];
+    assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should return single `$push` with ordered `$each` when `add`s in continuous negative positions', () => {
+    const patches = [
+      { op: 'add', path: '/name/-', value: 'dave' },
+      { op: 'add', path: '/name/-1', value: 'bob' },
+      { op: 'add', path: '/name/-1', value: 'john' },
+    ];
+    const expected = [{ $push: { name: { $each: ['bob', 'john', 'dave'] } } }];
+    assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should work with multiple adds with non contiguous positions', () => {
+    const patches = [
       {
         op: 'add',
         path: '/name/1',
@@ -137,7 +68,7 @@ describe('jsonpatch to mongodb', () => {
       },
       {
         op: 'add',
-        path: '/name/1',
+        path: '/name/3',
         value: 'john',
       },
     ];
@@ -145,7 +76,12 @@ describe('jsonpatch to mongodb', () => {
     const expected = [
       {
         $push: {
-          name: { $each: ['john', 'bob', 'dave'], $position: 1 },
+          name: { $each: ['bob'], $position: 1 },
+        },
+      },
+      {
+        $push: {
+          name: { $each: ['john'], $position: 3 },
         },
       },
     ];
@@ -153,16 +89,11 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds 3', () => {
+  it('should work with multiple adds with mixed directions 1', () => {
     const patches = [
       {
         op: 'add',
-        path: '/name/-',
-        value: 'dave',
-      },
-      {
-        op: 'add',
-        path: '/name/-',
+        path: '/name/1',
         value: 'bob',
       },
       {
@@ -175,7 +106,12 @@ describe('jsonpatch to mongodb', () => {
     const expected = [
       {
         $push: {
-          name: { $each: ['dave', 'bob', 'john'] },
+          name: { $each: ['bob'], $position: 1 },
+        },
+      },
+      {
+        $push: {
+          name: { $each: ['john'] },
         },
       },
     ];
@@ -183,13 +119,8 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds with some null at the end', () => {
+  it('blow up on adds with mixed directions 2', () => {
     const patches = [
-      {
-        op: 'add',
-        path: '/name/-',
-        value: null,
-      },
       {
         op: 'add',
         path: '/name/-',
@@ -197,45 +128,20 @@ describe('jsonpatch to mongodb', () => {
       },
       {
         op: 'add',
-        path: '/name/-',
-        value: null,
+        path: '/name/1',
+        value: 'john',
       },
     ];
 
     const expected = [
       {
         $push: {
-          name: { $each: [null, 'bob', null] },
+          name: { $each: ['bob'] },
         },
       },
-    ];
-
-    assert.deepEqual(toMongodb(patches), expected);
-  });
-
-  it('should work with multiple adds with some null and position', () => {
-    const patches = [
-      {
-        op: 'add',
-        path: '/name/1',
-        value: null,
-      },
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'bob',
-      },
-      {
-        op: 'add',
-        path: '/name/1',
-        value: null,
-      },
-    ];
-
-    const expected = [
       {
         $push: {
-          name: { $each: [null, 'bob', null], $position: 1 },
+          name: { $each: ['john'], $position: 1 },
         },
       },
     ];
@@ -435,48 +341,6 @@ describe('jsonpatch to mongodb', () => {
     ];
 
     assert.deepEqual(toMongodb(patches), expected);
-  });
-
-  it('blow up on adds with mixed directions 1', () => {
-    const patches = [
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'bob',
-      },
-      {
-        op: 'add',
-        path: '/name/-',
-        value: 'john',
-      },
-    ];
-
-    chai
-      .expect(() => {
-        toMongodb(patches);
-      })
-      .to.throw('Unsupported Operation! Can only use add op starting from the same direction.');
-  });
-
-  it('blow up on adds with mixed directions 2', () => {
-    const patches = [
-      {
-        op: 'add',
-        path: '/name/-',
-        value: 'bob',
-      },
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'john',
-      },
-    ];
-
-    chai
-      .expect(() => {
-        toMongodb(patches);
-      })
-      .to.throw('Unsupported Operation! Can only use add op starting from the same direction.');
   });
 
   it('should blow up on copy', () => {

@@ -16,6 +16,14 @@ function extract(dotPath) {
   };
 }
 
+function initPush(value, index) {
+  const result = { $each: [value] };
+  if (index !== '-') {
+    result.$position = index;
+  }
+  return result;
+}
+
 function toMongoUpdate(patches) {
   const opLoc = {};
   return patches.reduce(
@@ -30,111 +38,106 @@ function toMongoUpdate(patches) {
         const { location, index } = extract(fullPath);
         if (Number.isNaN(index)) {
           const update = updates[opLoc[prefix]] || {};
-          update.$set = update.$set || {};
-          update.$set[fullPath] = value;
+          update.$set = { ...(update.$set || {}), [fullPath]: value };
           updates.splice(opLoc[prefix], 1, update);
           opLoc[prefix] += 1;
-        } else {
-          const pushLoc = `${location}$push`;
-          opLoc[pushLoc] = pushLoc in opLoc ? opLoc[pushLoc] : opLoc[prefix] || 0;
-          if (!Number.isInteger(opLoc[pushLoc])) {
-            throw new Error('Unsupported Operation! No ops can be applied on removed path.');
-          }
-          const update = updates[opLoc[pushLoc]] || {};
-          update.$push = update.$push || {};
-          if (!update.$push[location]) {
-            update.$push[location] = {
-              $each: [value],
-            };
-            if (index !== '-') {
-              update.$push[location].$position = index;
-            }
-          } else {
-            const backward =
-              !('$position' in update.$push[location]) || update.$push[location].$position < 0;
-            if ((!backward && (index === '-' || index < 0)) || (backward && index >= 0)) {
-              throw new Error(
-                'Unsupported Operation! Can only use add op starting from the same direction.'
-              );
-            }
-            const $position = !('$position' in update.$push[location])
-              ? 0
-              : Math.abs(update.$push[location].$position);
-            const absIndex = index === '-' ? 0 : Math.abs(index);
-            const start = absIndex - $position;
-            if (start < 0 || start > update.$push[location].$each.length) {
-              throw new Error(
-                'Unsupported Operation! Can use add op only with contiguous positions.'
-              );
-            }
-            const $each = backward
-              ? update.$push[location].$each.reverse()
-              : update.$push[location].$each;
-            $each.splice(start, 0, value);
-            update.$push[location].$each = backward ? $each.reverse() : $each;
-          }
-          updates.splice(opLoc[pushLoc], 1, update);
-          if (opLoc[prefix] < opLoc[pushLoc] + 1) {
-            opLoc[prefix] = opLoc[pushLoc] + 1;
-          }
+          return updates;
         }
+        const pushLoc = `${location}$push`;
+        opLoc[pushLoc] = pushLoc in opLoc ? opLoc[pushLoc] : opLoc[prefix] || 0;
+        if (!Number.isInteger(opLoc[pushLoc])) {
+          throw new Error('Unsupported Operation! No ops can be applied on removed path.');
+        }
+        const current = updates[opLoc[pushLoc]] || {};
+        if (!current.$push || !current.$push[location]) {
+          current.$push = { ...(current.$push || {}), [location]: initPush(value, index) };
+          updates.splice(opLoc[pushLoc], 1, current);
+          opLoc[prefix] = Math.max(opLoc[prefix], opLoc[pushLoc] + 1);
+          return updates;
+        }
+        const backward =
+          !('$position' in current.$push[location]) || current.$push[location].$position < 0;
+        if ((!backward && (index === '-' || index < 0)) || (backward && index >= 0)) {
+          opLoc[pushLoc] = opLoc[prefix] || 0;
+          const next = updates[opLoc[pushLoc]] || {};
+          next.$push = { ...(next.$push || {}), [location]: initPush(value, index) };
+          updates.splice(opLoc[pushLoc], 1, next);
+          opLoc[prefix] = Math.max(opLoc[prefix], opLoc[pushLoc] + 1);
+          return updates;
+        }
+        const $position = !('$position' in current.$push[location])
+          ? 0
+          : Math.abs(current.$push[location].$position);
+        const absIndex = index === '-' ? 0 : Math.abs(index);
+        const start = absIndex - $position;
+        if (start < 0 || start > current.$push[location].$each.length) {
+          opLoc[pushLoc] = opLoc[prefix] || 0;
+          const next = updates[opLoc[pushLoc]] || {};
+          next.$push = { ...(next.$push || {}), [location]: initPush(value, index) };
+          updates.splice(opLoc[pushLoc], 1, next);
+          opLoc[prefix] = Math.max(opLoc[prefix], opLoc[pushLoc] + 1);
+          return updates;
+        }
+        const $each = backward
+          ? current.$push[location].$each.reverse()
+          : current.$push[location].$each;
+        $each.splice(start, 0, value);
+        current.$push[location].$each = backward ? $each.reverse() : $each;
+        updates.splice(opLoc[pushLoc], 1, current);
+        opLoc[prefix] = Math.max(opLoc[prefix], opLoc[pushLoc] + 1);
         return updates;
       }
       if (op === 'remove') {
         const { location, index } = extract(fullPath);
         const update = updates[opLoc[prefix]] || {};
         if (index === -1 || index === 0) {
-          update.$pop = update.$pop || {};
-          update.$pop[location] = index === -1 ? 1 : -1;
+          update.$pop = { ...(update.$pop || {}), [location]: index === -1 ? 1 : -1 };
           updates.splice(opLoc[prefix], 1, update);
           opLoc[prefix] += 1;
           return updates;
         }
         if (Number.isNaN(index)) {
-          update.$unset = update.$unset || {};
-          update.$unset[fullPath] = 1;
+          update.$unset = { ...(update.$unset || {}), [fullPath]: 1 };
           updates.splice(opLoc[prefix], 1, update);
-          Object.keys(opLoc).forEach(key => {
-            if (key.startsWith(prefix)) {
-              opLoc[key] = '-';
-            }
-          });
+          Object.entries(opLoc).reduce((acc, [key, val]) => {
+            acc[key] = key.startsWith(prefix) ? '-' : val;
+            return acc;
+          }, {});
           return updates;
         }
-        update.$set = update.$set || {};
-        update.$set[fullPath] = null;
+        update.$set = { ...(update.$set || {}), [fullPath]: null };
         updates.splice(opLoc[prefix], 1, update);
         opLoc[prefix] += 1;
         const remove = updates[opLoc[prefix]] || {};
-        remove.$pull = remove.$pull || {};
-        remove.$pull[location] = null;
+        remove.$pull = { ...(remove.$pull || {}), [location]: null };
         updates.splice(opLoc[prefix], 1, remove);
         opLoc[prefix] += 1;
         return updates;
       }
       if (op === 'replace') {
         const update = updates[opLoc[prefix]] || {};
-        if (typeof value === 'string' && (value.startsWith('+') || value.startsWith('-'))) {
-          update.$inc = update.$inc || {};
-          const step = parseFloat(value);
-          if (Number.isNaN(step)) {
-            throw new Error('Unsupported Operation! Can only increments with number.');
+        if (typeof value === 'string') {
+          if (value.startsWith('+') || value.startsWith('-')) {
+            const step = parseFloat(value);
+            if (!Number.isNaN(step)) {
+              update.$inc = { ...(update.$inc || {}), [fullPath]: step };
+              updates.splice(opLoc[prefix], 1, update);
+              opLoc[prefix] += 1;
+              return updates;
+            }
           }
-          update.$inc[fullPath] = step;
-          updates.splice(opLoc[prefix], 1, update);
-        } else if (typeof value === 'string' && value.startsWith('×')) {
-          update.$mul = update.$mul || {};
-          const step = parseFloat(value.slice(1));
-          if (Number.isNaN(step)) {
-            throw new Error('Unsupported Operation! Can only multiplies with number.');
+          if (value.startsWith('*') || value.startsWith('×')) {
+            const step = parseFloat(value.slice(1));
+            if (!Number.isNaN(step)) {
+              update.$mul = { ...(update.$mul || {}), [fullPath]: step };
+              updates.splice(opLoc[prefix], 1, update);
+              opLoc[prefix] += 1;
+              return updates;
+            }
           }
-          update.$mul[fullPath] = step;
-          updates.splice(opLoc[prefix], 1, update);
-        } else {
-          update.$set = update.$set || {};
-          update.$set[fullPath] = value;
-          updates.splice(opLoc[prefix], 1, update);
         }
+        update.$set = { ...(update.$set || {}), [fullPath]: value };
+        updates.splice(opLoc[prefix], 1, update);
         opLoc[prefix] += 1;
         return updates;
       }
@@ -144,19 +147,15 @@ function toMongoUpdate(patches) {
         if (!Number.isInteger(opLoc[fromPrefix])) {
           throw new Error('Unsupported Operation! No ops can be applied on removed path.');
         }
-        if (opLoc[fromPrefix] < opLoc[prefix]) {
-          opLoc[fromPrefix] = opLoc[prefix];
-        }
+        opLoc[fromPrefix] = Math.max(opLoc[fromPrefix], opLoc[prefix]);
         const update = updates[opLoc[fromPrefix]] || {};
-        update.$rename = update.$rename || {};
-        update.$rename[fromPath] = fullPath;
+        update.$rename = { ...(update.$rename || {}), [fromPath]: fullPath };
         updates.splice(opLoc[fromPrefix], 1, update);
         opLoc[prefix] = opLoc[fromPrefix] + 1;
-        Object.keys(opLoc).forEach(key => {
-          if (key.startsWith(fromPrefix)) {
-            opLoc[key] = '-';
-          }
-        });
+        Object.entries(opLoc).reduce((acc, [key, val]) => {
+          acc[key] = key.startsWith(fromPrefix) ? '-' : val;
+          return acc;
+        }, {});
         return updates;
       }
       throw new Error(`Unsupported Operation! op = ${op}`);
