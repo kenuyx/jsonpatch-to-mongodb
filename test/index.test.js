@@ -368,7 +368,27 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('blow up on adds with non contiguous positions', () => {
+  it('should work with move', () => {
+    const patches = [
+      {
+        op: 'move',
+        path: '/to',
+        from: '/from',
+      },
+    ];
+
+    const expected = [
+      {
+        $rename: {
+          from: 'to',
+        },
+      },
+    ];
+
+    assert.deepEqual(toMongodb(patches), expected);
+  });
+
+  it('should work with mixed operations', () => {
     const patches = [
       {
         op: 'add',
@@ -376,17 +396,45 @@ describe('jsonpatch to mongodb', () => {
         value: 'bob',
       },
       {
-        op: 'add',
-        path: '/name/3',
-        value: 'john',
+        op: 'replace',
+        path: '/name',
+        value: ['dave'],
+      },
+      {
+        op: 'move',
+        path: '/nick',
+        from: '/name',
+      },
+      {
+        op: 'remove',
+        path: '/nick',
       },
     ];
 
-    chai
-      .expect(() => {
-        toMongodb(patches);
-      })
-      .to.throw('Unsupported Operation! Can use add op only with contiguous positions.');
+    const expected = [
+      {
+        $push: {
+          name: { $each: ['bob'], $position: 1 },
+        },
+      },
+      {
+        $set: {
+          name: ['dave'],
+        },
+      },
+      {
+        $rename: {
+          name: 'nick',
+        },
+      },
+      {
+        $unset: {
+          nick: 1,
+        },
+      },
+    ];
+
+    assert.deepEqual(toMongodb(patches), expected);
   });
 
   it('blow up on adds with mixed directions 1', () => {
@@ -429,22 +477,6 @@ describe('jsonpatch to mongodb', () => {
         toMongodb(patches);
       })
       .to.throw('Unsupported Operation! Can only use add op starting from the same direction.');
-  });
-
-  it('should blow up on move', () => {
-    const patches = [
-      {
-        op: 'move',
-        path: '/name',
-        from: '/old_name',
-      },
-    ];
-
-    chai
-      .expect(() => {
-        toMongodb(patches);
-      })
-      .to.throw('Unsupported Operation! op = move');
   });
 
   it('should blow up on copy', () => {
