@@ -59,93 +59,46 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds with non contiguous positions', () => {
+  it('should return a `$push` list when `add`s in non contiguous positive positions', () => {
     const patches = [
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'bob',
-      },
-      {
-        op: 'add',
-        path: '/name/3',
-        value: 'john',
-      },
+      { op: 'add', path: '/name/1', value: 'bob' },
+      { op: 'add', path: '/name/4', value: 'john' },
+      { op: 'add', path: '/name/3', value: 'dave' },
     ];
-
     const expected = [
-      {
-        $push: {
-          name: { $each: ['bob'], $position: 1 },
-        },
-      },
-      {
-        $push: {
-          name: { $each: ['john'], $position: 3 },
-        },
-      },
+      { $push: { name: { $each: ['bob'], $position: 1 } } },
+      { $push: { name: { $each: ['john'], $position: 4 } } },
+      { $push: { name: { $each: ['dave'], $position: 3 } } },
     ];
-
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('should work with multiple adds with mixed directions 1', () => {
+  it('should return a `$push` list when `add`s in non contiguous negative positions', () => {
     const patches = [
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'bob',
-      },
-      {
-        op: 'add',
-        path: '/name/-',
-        value: 'john',
-      },
+      { op: 'add', path: '/name/-', value: 'bob' },
+      { op: 'add', path: '/name/-2', value: 'john' },
+      { op: 'add', path: '/name/-1', value: 'dave' },
     ];
-
     const expected = [
-      {
-        $push: {
-          name: { $each: ['bob'], $position: 1 },
-        },
-      },
-      {
-        $push: {
-          name: { $each: ['john'] },
-        },
-      },
+      { $push: { name: { $each: ['bob'] } } },
+      { $push: { name: { $each: ['john'], $position: -2 } } },
+      { $push: { name: { $each: ['dave'], $position: -1 } } },
     ];
-
     assert.deepEqual(toMongodb(patches), expected);
   });
 
-  it('blow up on adds with mixed directions 2', () => {
+  it('should return a `$push` list when `add`s in mixed directions', () => {
     const patches = [
-      {
-        op: 'add',
-        path: '/name/-',
-        value: 'bob',
-      },
-      {
-        op: 'add',
-        path: '/name/1',
-        value: 'john',
-      },
+      { op: 'add', path: '/name/0', value: 'bob' },
+      { op: 'add', path: '/name/-', value: 'john' },
+      { op: 'add', path: '/name/-1', value: 'dave' },
+      { op: 'add', path: '/name/1', value: null },
     ];
-
     const expected = [
-      {
-        $push: {
-          name: { $each: ['bob'] },
-        },
-      },
-      {
-        $push: {
-          name: { $each: ['john'], $position: 1 },
-        },
-      },
+      { $push: { name: { $each: ['bob'], $position: 0 } } },
+      { $push: { name: { $each: ['dave', 'john'] } } },
+      { $push: { name: { $each: [null], $position: 1 } } },
     ];
-
     assert.deepEqual(toMongodb(patches), expected);
   });
 
