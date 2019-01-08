@@ -183,7 +183,7 @@ function toMongoUpdate(patches) {
     return fromJSONPatch(patches);
   }
   if (typeof patches === 'object') {
-    return fromMergePatch(patches);
+    return [fromMergePatch(patches)];
   }
   throw new Error(`Unsupported Value! An array or an object only.`);
 }

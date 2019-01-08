@@ -188,24 +188,26 @@ describe('jsonpatch to mongodb', () => {
         valid: true,
       },
     };
-    const expected = {
-      $set: {
-        'name.first': 'dave',
-        age: {
-          _bsontype: 'integer',
-          $number: 10,
+    const expected = [
+      {
+        $set: {
+          'name.first': 'dave',
+          age: {
+            _bsontype: 'integer',
+            $number: 10,
+          },
+          'contact.address.province': 'Shanghai',
+          'contact.address.city': 'Shanghai',
+          'contact.mobile': '123456',
+          'contact.valid': true,
         },
-        'contact.address.province': 'Shanghai',
-        'contact.address.city': 'Shanghai',
-        'contact.mobile': '123456',
-        'contact.valid': true,
+        $unset: {
+          'name.last': 1,
+          wealth: 1,
+          'contact.address.street': 1,
+        },
       },
-      $unset: {
-        'name.last': 1,
-        wealth: 1,
-        'contact.address.street': 1,
-      },
-    };
+    ];
     assert.deepEqual(toMongodb(patch), expected);
   });
 
