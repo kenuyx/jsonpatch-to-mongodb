@@ -24,7 +24,7 @@ function initPush(value, index) {
   return result;
 }
 
-function toMongoUpdate(patches) {
+function fromJSONPatch(patches) {
   const startOf = {};
   return patches.reduce(
     (updates, patch) => {
@@ -146,6 +146,46 @@ function toMongoUpdate(patches) {
     },
     [{}]
   );
+}
+
+function fromMergePatch(patch, path) {
+  const result = {
+    $set: {},
+    $unset: {},
+  };
+  if (patch === null) {
+    if (path) result.$unset[path] = 1;
+  } else if (typeof patch === 'object' && !('_bsontype' in patch)) {
+    Object.entries(patch).forEach(([key, val]) => {
+      const { $set, $unset } = fromMergePatch(val, `${path ? `${path}.` : ''}${key}`);
+      result.$set = Object.entries($set || {}).reduce((acc, [k, v]) => {
+        acc[k] = v;
+        return acc;
+      }, result.$set);
+      result.$unset = Object.entries($unset || {}).reduce((acc, [k, v]) => {
+        acc[k] = v;
+        return acc;
+      }, result.$unset);
+    });
+  } else if (path) {
+    result.$set[path] = patch;
+  }
+  if (Object.keys(result.$set) === 0) delete result.$set;
+  if (Object.keys(result.$unset) === 0) delete result.$unset;
+  return result;
+}
+
+function toMongoUpdate(patches) {
+  if (!patches) {
+    throw new Error(`Unsupported Value! An array or an object only.`);
+  }
+  if (Array.isArray(patches)) {
+    return fromJSONPatch(patches);
+  }
+  if (typeof patches === 'object') {
+    return fromMergePatch(patches);
+  }
+  throw new Error(`Unsupported Value! An array or an object only.`);
 }
 
 module.exports = toMongoUpdate;

@@ -170,6 +170,45 @@ describe('jsonpatch to mongodb', () => {
     assert.deepEqual(toMongodb(patches), expected);
   });
 
+  it('should return `$set` and `$unset` when patch is an object', () => {
+    const patch = {
+      name: { first: 'dave', last: null },
+      age: {
+        _bsontype: 'integer',
+        $number: 10,
+      },
+      wealth: null,
+      contact: {
+        address: {
+          province: 'Shanghai',
+          city: 'Shanghai',
+          street: null,
+        },
+        mobile: '123456',
+        valid: true,
+      },
+    };
+    const expected = {
+      $set: {
+        'name.first': 'dave',
+        age: {
+          _bsontype: 'integer',
+          $number: 10,
+        },
+        'contact.address.province': 'Shanghai',
+        'contact.address.city': 'Shanghai',
+        'contact.mobile': '123456',
+        'contact.valid': true,
+      },
+      $unset: {
+        'name.last': 1,
+        wealth: 1,
+        'contact.address.street': 1,
+      },
+    };
+    assert.deepEqual(toMongodb(patch), expected);
+  });
+
   it('should blow up when op is `copy`', () => {
     const patches = [{ op: 'copy', path: '/name', from: '/old_name' }];
     chai
