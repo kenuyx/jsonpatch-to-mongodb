@@ -31,9 +31,6 @@ function toMongoUpdate(patches) {
       const { op, path, value, from } = patch;
       const { prefix, path: fullPath } = toDot(path);
       startOf[prefix] = startOf[prefix] || 0;
-      if (startOf[prefix] === '-') {
-        throw new Error('Unsupported Operation! No ops can be applied on removed path.');
-      }
       if (op === 'add') {
         const { location, index } = extract(fullPath);
         if (Number.isNaN(index)) {
@@ -45,9 +42,6 @@ function toMongoUpdate(patches) {
         }
         const pushLoc = `${location}$push`;
         startOf[pushLoc] = pushLoc in startOf ? startOf[pushLoc] : [startOf[prefix] || 0];
-        if (startOf[pushLoc] === '-') {
-          throw new Error('Unsupported Operation! No ops can be applied on removed path.');
-        }
         const current = updates[startOf[pushLoc]] || {};
         if (!current.$push || !current.$push[location]) {
           current.$push = { ...(current.$push || {}), [location]: initPush(value, index) };
@@ -90,19 +84,16 @@ function toMongoUpdate(patches) {
       if (op === 'remove') {
         const { location, index } = extract(fullPath);
         const update = updates[startOf[prefix]] || {};
-        if (index === -1 || index === 0) {
-          update.$pop = { ...(update.$pop || {}), [location]: index === -1 ? 1 : -1 };
+        if (Number.isNaN(index)) {
+          update.$unset = { ...(update.$unset || {}), [fullPath]: 1 };
           updates.splice(startOf[prefix], 1, update);
           startOf[prefix] += 1;
           return updates;
         }
-        if (Number.isNaN(index)) {
-          update.$unset = { ...(update.$unset || {}), [fullPath]: 1 };
+        if (index === -1 || index === 0) {
+          update.$pop = { ...(update.$pop || {}), [location]: index === -1 ? 1 : -1 };
           updates.splice(startOf[prefix], 1, update);
-          Object.entries(startOf).reduce((acc, [key, val]) => {
-            acc[key] = key.startsWith(prefix) ? '-' : val;
-            return acc;
-          }, {});
+          startOf[prefix] += 1;
           return updates;
         }
         update.$set = { ...(update.$set || {}), [fullPath]: null };
@@ -144,21 +135,14 @@ function toMongoUpdate(patches) {
       if (op === 'move') {
         const { prefix: fromPrefix, path: fromPath } = toDot(from);
         startOf[fromPrefix] = startOf[fromPrefix] || 0;
-        if (startOf[fromPrefix] === '-') {
-          throw new Error('Unsupported Operation! No ops can be applied on removed path.');
-        }
         startOf[fromPrefix] = Math.max(startOf[fromPrefix], startOf[prefix]);
         const update = updates[startOf[fromPrefix]] || {};
         update.$rename = { ...(update.$rename || {}), [fromPath]: fullPath };
         updates.splice(startOf[fromPrefix], 1, update);
         startOf[prefix] = startOf[fromPrefix] + 1;
-        Object.entries(startOf).reduce((acc, [key, val]) => {
-          acc[key] = key.startsWith(fromPrefix) ? '-' : val;
-          return acc;
-        }, {});
         return updates;
       }
-      throw new Error(`Unsupported Operation! op = ${op}`);
+      throw new Error(`Unsupported Operation! op = ${op}.`);
     },
     [{}]
   );
