@@ -1,19 +1,47 @@
+class PathIndex {
+  constructor() {
+    this.startOf = {};
+  }
+
+  exists(path) {
+    return path in (this.startOf || {});
+  }
+
+  locate(path, index) {
+    if (!Number.isInteger(index) || index < 0) {
+      if (!path) return 0;
+      return Object.entries(this.startOf || {}).reduce(
+        (acc, [key, val]) =>
+          key.startsWith(path) || path.startsWith(key) ? Math.max(acc, val) : acc,
+        0
+      );
+    }
+    if (path) {
+      this.startOf[path] = index;
+      this.startOf = Object.entries(this.startOf || {}).reduce((acc, [key, val]) => {
+        acc[key.startsWith(path) ? path : key] =
+          key.startsWith(path) || path.startsWith(key) ? index : val;
+        return acc;
+      }, {});
+    }
+    return this.startOf || {};
+  }
+}
+
 function toDot(path) {
-  const dotPath = path
+  return path
     .replace(/^\//, '')
     .replace(/\//g, '.')
     .replace(/~1/g, '/')
     .replace(/~0/g, '~');
-  return { prefix: dotPath.split('.')[0], path: dotPath };
 }
 
 function extract(dotPath) {
   const components = dotPath.split('.');
   const last = components.pop();
-  return {
-    location: components.join('.'),
-    index: last === '-' ? '-' : parseInt(last, 10),
-  };
+  const index = last === '-' ? '-' : parseInt(last, 10);
+  const location = Number.isNaN(index) ? dotPath : components.join('.');
+  return { location, index };
 }
 
 function initPush(value, index) {
@@ -25,38 +53,39 @@ function initPush(value, index) {
 }
 
 function fromJSONPatch(patches) {
-  const startOf = {};
+  const pathIndex = new PathIndex();
+  const pushIndex = new PathIndex();
   return patches.reduce(
     (updates, patch) => {
       const { op, path, value, from } = patch;
-      const { prefix, path: fullPath } = toDot(path);
-      startOf[prefix] = startOf[prefix] || 0;
+      const fullPath = toDot(path);
+      const { location, index } = extract(fullPath);
+      let nextAt = pathIndex.locate(location);
       if (op === 'add') {
-        const { location, index } = extract(fullPath);
         if (Number.isNaN(index)) {
-          const update = updates[startOf[prefix]] || {};
+          const update = updates[nextAt] || {};
           update.$set = { ...(update.$set || {}), [fullPath]: value };
-          updates.splice(startOf[prefix], 1, update);
-          startOf[prefix] += 1;
+          updates.splice(nextAt, 1, update);
+          pathIndex.locate(location, nextAt + 1);
           return updates;
         }
-        const pushLoc = `${location}$push`;
-        startOf[pushLoc] = pushLoc in startOf ? startOf[pushLoc] : [startOf[prefix] || 0];
-        const current = updates[startOf[pushLoc]] || {};
+        const pushAt = pushIndex.exists(location) ? pushIndex.locate(location) : nextAt;
+        const current = updates[pushAt] || {};
         if (!current.$push || !current.$push[location]) {
           current.$push = { ...(current.$push || {}), [location]: initPush(value, index) };
-          updates.splice(startOf[pushLoc], 1, current);
-          startOf[prefix] = Math.max(startOf[prefix], startOf[pushLoc] + 1);
+          updates.splice(pushAt, 1, current);
+          pushIndex.locate(location, pushAt);
+          pathIndex.locate(location, Math.max(pushAt + 1, nextAt));
           return updates;
         }
         const backward =
           !('$position' in current.$push[location]) || current.$push[location].$position < 0;
         if ((!backward && (index === '-' || index < 0)) || (backward && index >= 0)) {
-          startOf[pushLoc] = startOf[prefix] || 0;
-          const next = updates[startOf[pushLoc]] || {};
+          const next = updates[nextAt] || {};
           next.$push = { ...(next.$push || {}), [location]: initPush(value, index) };
-          updates.splice(startOf[pushLoc], 1, next);
-          startOf[prefix] = Math.max(startOf[prefix], startOf[pushLoc] + 1);
+          updates.splice(nextAt, 1, next);
+          pushIndex.locate(location, nextAt);
+          pathIndex.locate(location, nextAt + 1);
           return updates;
         }
         const $position = !('$position' in current.$push[location])
@@ -65,11 +94,11 @@ function fromJSONPatch(patches) {
         const absIndex = index === '-' ? 0 : Math.abs(index);
         const start = absIndex - $position;
         if (start < 0 || start > current.$push[location].$each.length) {
-          startOf[pushLoc] = startOf[prefix] || 0;
-          const next = updates[startOf[pushLoc]] || {};
+          const next = updates[nextAt] || {};
           next.$push = { ...(next.$push || {}), [location]: initPush(value, index) };
-          updates.splice(startOf[pushLoc], 1, next);
-          startOf[prefix] = Math.max(startOf[prefix], startOf[pushLoc] + 1);
+          updates.splice(nextAt, 1, next);
+          pushIndex.locate(location, nextAt);
+          pathIndex.locate(location, nextAt + 1);
           return updates;
         }
         const $each = backward
@@ -77,69 +106,48 @@ function fromJSONPatch(patches) {
           : current.$push[location].$each;
         $each.splice(start, 0, value);
         current.$push[location].$each = backward ? $each.reverse() : $each;
-        updates.splice(startOf[pushLoc], 1, current);
-        startOf[prefix] = Math.max(startOf[prefix], startOf[pushLoc] + 1);
+        updates.splice(pushAt, 1, current);
+        pushIndex.locate(location, pushAt);
+        pathIndex.locate(location, Math.max(pushAt + 1, nextAt));
         return updates;
       }
       if (op === 'remove') {
-        const { location, index } = extract(fullPath);
-        const update = updates[startOf[prefix]] || {};
         if (Number.isNaN(index)) {
+          const update = updates[nextAt] || {};
           update.$unset = { ...(update.$unset || {}), [fullPath]: 1 };
-          updates.splice(startOf[prefix], 1, update);
-          startOf[prefix] += 1;
-          return updates;
-        }
-        if (index === -1 || index === 0) {
+          updates.splice(nextAt, 1, update);
+        } else if (index === -1 || index === 0) {
+          const update = updates[nextAt] || {};
           update.$pop = { ...(update.$pop || {}), [location]: index === -1 ? 1 : -1 };
-          updates.splice(startOf[prefix], 1, update);
-          startOf[prefix] += 1;
-          return updates;
+          updates.splice(nextAt, 1, update);
+        } else {
+          const update = updates[nextAt] || {};
+          update.$set = { ...(update.$set || {}), [fullPath]: null };
+          updates.splice(nextAt, 1, update);
+          nextAt += 1;
+          const remove = updates[nextAt] || {};
+          remove.$pull = { ...(remove.$pull || {}), [location]: null };
+          updates.splice(nextAt, 1, remove);
         }
-        update.$set = { ...(update.$set || {}), [fullPath]: null };
-        updates.splice(startOf[prefix], 1, update);
-        startOf[prefix] += 1;
-        const remove = updates[startOf[prefix]] || {};
-        remove.$pull = { ...(remove.$pull || {}), [location]: null };
-        updates.splice(startOf[prefix], 1, remove);
-        startOf[prefix] += 1;
+        pathIndex.locate(location, nextAt + 1);
         return updates;
       }
       if (op === 'replace') {
-        const update = updates[startOf[prefix]] || {};
-        if (typeof value === 'string') {
-          if (value.startsWith('+') || value.startsWith('-')) {
-            const step = parseFloat(value);
-            if (!Number.isNaN(step)) {
-              update.$inc = { ...(update.$inc || {}), [fullPath]: step };
-              updates.splice(startOf[prefix], 1, update);
-              startOf[prefix] += 1;
-              return updates;
-            }
-          }
-          if (value.startsWith('*') || value.startsWith('×')) {
-            const step = parseFloat(value.slice(1));
-            if (!Number.isNaN(step)) {
-              update.$mul = { ...(update.$mul || {}), [fullPath]: step };
-              updates.splice(startOf[prefix], 1, update);
-              startOf[prefix] += 1;
-              return updates;
-            }
-          }
-        }
+        const update = updates[nextAt] || {};
         update.$set = { ...(update.$set || {}), [fullPath]: value };
-        updates.splice(startOf[prefix], 1, update);
-        startOf[prefix] += 1;
+        updates.splice(nextAt, 1, update);
+        pathIndex.locate(location, nextAt + 1);
         return updates;
       }
       if (op === 'move') {
-        const { prefix: fromPrefix, path: fromPath } = toDot(from);
-        startOf[fromPrefix] = startOf[fromPrefix] || 0;
-        startOf[fromPrefix] = Math.max(startOf[fromPrefix], startOf[prefix]);
-        const update = updates[startOf[fromPrefix]] || {};
+        const fromPath = toDot(from);
+        const { location: fromLocation } = extract(fromPath);
+        const renameAt = Math.max(pathIndex.locate(fromLocation), pathIndex.locate(location));
+        const update = updates[renameAt] || {};
         update.$rename = { ...(update.$rename || {}), [fromPath]: fullPath };
-        updates.splice(startOf[fromPrefix], 1, update);
-        startOf[prefix] = startOf[fromPrefix] + 1;
+        updates.splice(renameAt, 1, update);
+        pathIndex.locate(fromLocation, renameAt + 1);
+        pathIndex.locate(location, renameAt + 1);
         return updates;
       }
       throw new Error(`Unsupported Operation! op = ${op}.`);
