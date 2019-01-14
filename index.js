@@ -163,7 +163,7 @@ function fromMergePatch(patch, path) {
   };
   if (patch === null) {
     if (path) result.$unset[path] = 1;
-  } else if (typeof patch === 'object' && !('_bsontype' in patch)) {
+  } else if (typeof patch === 'object' && !Array.isArray(patch) && !('_bsontype' in patch)) {
     Object.entries(patch).forEach(([key, val]) => {
       const { $set, $unset } = fromMergePatch(val, `${path ? `${path}.` : ''}${key}`);
       result.$set = Object.entries($set || {}).reduce((acc, [k, v]) => {
