@@ -178,8 +178,8 @@ function fromMergePatch(patch, path) {
   } else if (path) {
     result.$set[path] = patch;
   }
-  if (Object.keys(result.$set) === 0) delete result.$set;
-  if (Object.keys(result.$unset) === 0) delete result.$unset;
+  if (Object.keys(result.$set).length === 0) delete result.$set;
+  if (Object.keys(result.$unset).length === 0) delete result.$unset;
   return result;
 }
 
